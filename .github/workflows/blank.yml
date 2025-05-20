@@ -1,0 +1,89 @@
+import streamlit as st
+import pandas as pd
+from io import BytesIO
+
+st.title("Applicazione per Elaborazione HORIZON")
+
+uploaded_horizon = st.file_uploader("Carica il file HORIZON.csv", type="csv")
+uploaded_xyz = st.file_uploader("Carica il file XYZ_DEM.csv", type="csv")
+
+if uploaded_horizon and uploaded_xyz:
+    horizon_df = pd.read_csv(uploaded_horizon)
+    xyz_df = pd.read_csv(uploaded_xyz)
+
+    merged_df = pd.merge(horizon_df, xyz_df[['NUM_OSS', 'X', 'Y', 'Z']],
+                         left_on='HOLEID', right_on='NUM_OSS')
+
+    merged_df['X'] = merged_df['X_y']
+    merged_df['Y'] = merged_df['Y_y']
+    merged_df['Z_DEM'] = merged_df['Z']
+    filtered_df = merged_df[merged_df['HOLEID'] == merged_df['NUM_OSS']].copy()
+    filtered_df['Z_CALC'] = (filtered_df['Z_DEM'] - filtered_df['FROM']).round(3)
+
+    filtered_df.sort_values(by=['HOLEID', 'FROM'], inplace=True)
+    filtered_df.reset_index(drop=True, inplace=True)
+
+    new_rows = []
+    for i in range(1, len(filtered_df)):
+        curr = filtered_df.iloc[i]
+        prev = filtered_df.iloc[i - 1]
+        if curr['HOLEID'] != prev['HOLEID']:
+            new_row = prev.copy()
+            new_row['FROM'] = None
+            new_row['DESC_'] = None
+            new_row['LITOLOGIA'] = None
+            new_row['HORIZON'] = None
+            new_row['Z_CALC'] = round(prev['Z_DEM'] - prev['TO'], 3)
+            new_rows.append((i, new_row))
+
+    for idx, row in reversed(new_rows):
+        filtered_df = pd.concat(
+            [filtered_df.iloc[:idx], pd.DataFrame([row]), filtered_df.iloc[idx:]]
+        ).reset_index(drop=True)
+
+    final_df = filtered_df[horizon_df.columns.tolist() + ['Z_CALC']]
+
+    st.success("Elaborazione completata.")
+    st.dataframe(final_df)
+
+    # Download
+    output = BytesIO()
+    final_df.to_excel(output, index=False, engine='openpyxl')
+    st.download_button("📥 Scarica Excel", data=output.getvalue(), file_name="HORIZON_modificato.xlsx")
+    
+
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+      # Runs a single command using the runners shell
+      - name: Run a one-line script
+        run: echo Hello, world!
+
+      # Runs a set of commands using the runners shell
+      - name: Run a multi-line script
+        run: |
+          echo Add other actions to build,
+          echo test, and deploy your project.
